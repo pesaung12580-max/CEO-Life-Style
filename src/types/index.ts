@@ -80,12 +80,19 @@ export interface DailyVideoRecommendation {
   takeawayMm: string;
 }
 
+export type VoicePersonaId = 'man_executive' | 'woman_pro' | 'girl_sweet' | 'man_coach' | 'woman_calm';
+
+export type TtsModelType = 'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts' | 'google-web';
+
 export interface AlarmConfig {
   wakeUpTime: string;      // default '06:00'
   wakeUpEnabled: boolean;
   bedtimeTime: string;     // default '21:40'
   bedtimeEnabled: boolean;
   soundEnabled: boolean;
+  voiceAlertsEnabled?: boolean; // Burmese Text-to-Speech alerts (my-MM)
+  selectedVoiceId?: VoicePersonaId; // 5 kinds of voices (man / woman / girl)
+  ttsModel?: TtsModelType; // Flagship Gemini AI TTS vs fast vs fallback
   browserNotificationsEnabled: boolean;
   blockRemindersEnabled: boolean;
 }
@@ -97,4 +104,5 @@ export interface ActiveAlarmPayload {
   subtitle: string;
   motivationMessage?: string;
   blockTime?: string;
+  speechText?: string;
 }

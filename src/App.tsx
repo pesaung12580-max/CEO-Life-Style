@@ -8,7 +8,9 @@ import {
   ShootingPlanItem,
   AlarmConfig,
   ActiveAlarmPayload,
+  VoicePersonaId,
 } from './types';
+import { saveSelectedVoicePersonaId } from './services/speechSynthesisService';
 import {
   getTodayDateString,
   getTimeBlocks,
@@ -159,6 +161,29 @@ export default function App() {
     return () => clearInterval(interval);
   }, [todayDate, selectedDate]);
 
+  // Listen for voice persona change events to keep alarmConfig in sync across all components
+  useEffect(() => {
+    const handleVoiceSync = (e: Event) => {
+      const customEvt = e as CustomEvent<{ personaId: VoicePersonaId }>;
+      if (customEvt.detail?.personaId && customEvt.detail.personaId !== alarmConfig.selectedVoiceId) {
+        setAlarmConfig((prev) => {
+          const updated = { ...prev, selectedVoiceId: customEvt.detail.personaId };
+          saveAlarmSettings(updated);
+          return updated;
+        });
+      }
+    };
+    window.addEventListener('ceo-voice-persona-changed', handleVoiceSync);
+    return () => window.removeEventListener('ceo-voice-persona-changed', handleVoiceSync);
+  }, [alarmConfig.selectedVoiceId]);
+
+  const handleAlarmVoiceChange = (newVoiceId: VoicePersonaId) => {
+    saveSelectedVoicePersonaId(newVoiceId);
+    const updated: AlarmConfig = { ...alarmConfig, selectedVoiceId: newVoiceId };
+    setAlarmConfig(updated);
+    saveAlarmSettings(updated);
+  };
+
   // Alarms check
   useEffect(() => {
     if (!currentTimeString) return;
@@ -256,7 +281,7 @@ export default function App() {
       id: `test_${Date.now()}`,
       type: 'wakeup',
       title: 'စမ်းသပ်အချက်ပေးသံ (Test Alarm)',
-      subtitle: 'အချက်ပေးသံနှင့် အသိပေးချက် ကောင်းမွန်စွာ အလုပ်လုပ်နေပါသည်',
+      subtitle: 'အချက်ပေးသံနှင့် မြန်မာလို အသံထွက် သတိပေးချက် စမ်းသပ်ခြင်း',
       motivationMessage: motivation,
     });
   };
@@ -494,10 +519,13 @@ export default function App() {
         <BottomNav activeTab={activeTab} onChangeTab={handleTabChange} />
       )}
 
-      {/* Alarm Pop-up Modal */}
+      {/* Alarm Pop-up Modal with Burmese SpeechSynthesis */}
       <AlarmModal
         alarm={activeAlarm}
         soundEnabled={alarmConfig.soundEnabled}
+        voiceAlertsEnabled={alarmConfig.voiceAlertsEnabled !== false}
+        selectedVoiceId={alarmConfig.selectedVoiceId}
+        onVoiceChanged={handleAlarmVoiceChange}
         onDismiss={() => setActiveAlarm(null)}
         onSnooze={handleSnooze}
       />

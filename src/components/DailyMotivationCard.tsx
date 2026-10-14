@@ -19,6 +19,7 @@ import {
   Dice5,
   Flame,
   Zap,
+  Radio,
 } from 'lucide-react';
 import {
   getCachedMotivation,
@@ -33,6 +34,14 @@ import {
 } from '../services/storage';
 import { CEO_MORNING_AFFIRMATIONS, CeoMorningAffirmation } from '../data/defaults';
 import { DailyMotivationState } from '../types';
+import {
+  speakBurmese,
+  stopBurmeseSpeech,
+  getVoicePersona,
+  getSavedVoicePersonaId,
+  saveSelectedVoicePersonaId,
+} from '../services/speechSynthesisService';
+import { MyanmarVoiceTesterModal } from './MyanmarVoiceTesterModal';
 
 interface Props {
   todayDate: string;
@@ -46,6 +55,7 @@ export const DailyMotivationCard: React.FC<Props> = ({ todayDate }) => {
   const [showFavoritesModal, setShowFavoritesModal] = useState(false);
   const [favoritesList, setFavoritesList] = useState<string[]>([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [showVoiceTester, setShowVoiceTester] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [customAvatar, setCustomAvatar] = useState<string | null>(getCustomAvatar());
   const [selectedCategory, setSelectedCategory] = useState<AffirmationCategory>('all');
@@ -187,22 +197,40 @@ export const DailyMotivationCard: React.FC<Props> = ({ todayDate }) => {
   };
 
   const handleSpeak = () => {
-    if (!motivation || !('speechSynthesis' in window)) return;
+    if (!motivation || typeof window === 'undefined') return;
 
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
+      stopBurmeseSpeech();
       setIsSpeaking(false);
       return;
     }
 
-    const textToSpeak = `${motivation.author} ၏ နေ့သစ်သန္နိဋ္ဌာန်။ ${motivation.message}။ အောင်မင်းမော် လက်တွေ့အကောင်အထည်ဖော်မှု။ ${motivation.takeawayMm}`;
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.rate = 0.95;
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    const savedVoiceId = getSavedVoicePersonaId();
+    const persona = getVoicePersona(savedVoiceId);
+    const isFemale = persona.gender === 'woman' || persona.gender === 'girl';
+
+    // Construct smooth, natural, daily conversational speech in Burmese
+    const greeting = isFemale
+      ? 'မင်္ဂလာနံနက်ခင်းပါ ကိုမင်းမော်ရှင်။'
+      : 'မင်္ဂလာနံနက်ခင်းပါ ကိုမင်းမော်ခင်ဗျာ။';
+    const affirmationIntro = isFemale
+      ? `ယနေ့ သန္နိဋ္ဌာန်ကတော့ "${motivation.message}" ဖြစ်ပါတယ်ရှင်။`
+      : `ယနေ့ သန္နိဋ္ဌာန်ကတော့ "${motivation.message}" ဖြစ်ပါတယ်ဗျာ။`;
+    const actionTakeaway = isFemale
+      ? `အောင်မင်းမော် လက်တွေ့ အကောင်အထည်ဖော်မှုကတော့ - ${motivation.takeawayMm} ဖြစ်ပါတယ်ရှင်။`
+      : `အောင်မင်းမော် လက်တွေ့ အကောင်အထည်ဖော်မှုကတော့ - ${motivation.takeawayMm} ဖြစ်ပါတယ်ခင်ဗျာ။`;
+    const closing = isFemale
+      ? 'ယနေ့တစ်နေ့တာလုံး စိတ်ခွန်အားပြည့်ဝစွာနဲ့ အောင်မြင်မှုတွေ ပိုင်ဆိုင်ပါစေရှင်။'
+      : 'ယနေ့တစ်နေ့တာလုံး စိတ်ခွန်အားပြည့်ဝစွာနဲ့ အောင်မြင်အောင် လုပ်ဆောင်ကြပါစို့ဗျာ။';
+
+    const textToSpeak = `${greeting} ${affirmationIntro} ${actionTakeaway} ${closing}`;
 
     setIsSpeaking(true);
-    window.speechSynthesis.speak(utterance);
+    speakBurmese(textToSpeak, {
+      personaId: savedVoiceId,
+      onEnd: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
   };
 
   return (
@@ -409,6 +437,16 @@ export const DailyMotivationCard: React.FC<Props> = ({ todayDate }) => {
               </button>
             )}
 
+            {/* Myanmar Voice Studio (5 Voices) Button */}
+            <button
+              onClick={() => setShowVoiceTester(true)}
+              title="မြန်မာအသံ စမ်းသပ်ခန်း (5 Voice Styles) ဖွင့်ရန်"
+              className="p-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-100/60 dark:text-rose-400 dark:hover:bg-rose-900/40 transition active:scale-95 flex items-center gap-1 border border-rose-200/60 dark:border-rose-900/40"
+            >
+              <Radio className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
+              <span className="text-[11px] font-bold">🎙️ အသံ ၅ မျိုး</span>
+            </button>
+
             {/* Copy Quote Button */}
             <button
               onClick={handleCopyQuote}
@@ -583,6 +621,13 @@ export const DailyMotivationCard: React.FC<Props> = ({ todayDate }) => {
           </div>
         </div>
       )}
+
+      {/* 5 Burmese Voice Tester Studio Modal */}
+      <MyanmarVoiceTesterModal
+        isOpen={showVoiceTester}
+        onClose={() => setShowVoiceTester(false)}
+        onVoiceChanged={(id) => saveSelectedVoicePersonaId(id)}
+      />
     </>
   );
 };

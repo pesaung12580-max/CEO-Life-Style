@@ -487,6 +487,248 @@ Return STRICT JSON matching this schema:
   }
 });
 
+// In-memory cache for generated Burmese TTS audio chunks
+const ttsAudioCache = new Map<string, Buffer>();
+const MAX_TTS_CACHE_SIZE = 120;
+
+/**
+ * Splits long Burmese text into manageable chunks (< 130 characters)
+ * for reliable TTS generation
+ */
+function splitBurmeseTextIntoChunks(text: string): string[] {
+  const clean = text.trim();
+  if (!clean) return [];
+  if (clean.length <= 130) return [clean];
+
+  // Split by Burmese sentence endings, punctuation, or spaces
+  const rawParts = clean.split(/([။၊\n\r!?]+)/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (let i = 0; i < rawParts.length; i++) {
+    const part = rawParts[i];
+    if (!part) continue;
+
+    if (current.length + part.length <= 130) {
+      current += part;
+    } else {
+      if (current.trim()) {
+        chunks.push(current.trim());
+      }
+      if (part.length > 130) {
+        // If a single segment without punctuation is still too long, split by words/spaces
+        const words = part.split(/\s+/);
+        let sub = '';
+        for (const w of words) {
+          if (sub.length + w.length + 1 <= 130) {
+            sub += (sub ? ' ' : '') + w;
+          } else {
+            if (sub) chunks.push(sub);
+            sub = w.slice(0, 130);
+          }
+        }
+        if (sub) current = sub;
+        else current = '';
+      } else {
+        current = part;
+      }
+    }
+  }
+
+  if (current.trim()) {
+    chunks.push(current.trim());
+  }
+
+  return chunks.length > 0 ? chunks : [clean.slice(0, 130)];
+}
+
+const PERSONA_VOICE_MAP: Record<string, { voice: string; style: string }> = {
+  man_executive: {
+    voice: 'Fenrir',
+    style: 'Deep, confident, articulate Burmese gentleman and executive leader speaking smoothly with natural conversational pauses, authoritative warmth, and polite male particles (ခင်ဗျာ/ပါဗျာ).',
+  },
+  woman_pro: {
+    voice: 'Kore',
+    style: 'Clear, elegant, courteous Burmese executive businesswoman speaking with refined articulation, smooth conversational flow, and polite female particles (ရှင်/ပါရှင်).',
+  },
+  girl_sweet: {
+    voice: 'Zephyr',
+    style: 'Cheerful, warm, affectionate, sweet younger Burmese sister speaking with natural, smooth daily conversational Burmese and sweet female particles (နော်ရှင်/ပါရှင်). Never sound male.',
+  },
+  man_coach: {
+    voice: 'Puck',
+    style: 'High energy, punchy, motivating Burmese male fitness and mindset coach speaking with inspiring drive, firm optimism, and spirited brotherly tone (ဗျာ/ပါဗျာ/ဗျို့).',
+  },
+  woman_calm: {
+    voice: 'Kore',
+    style: 'Tranquil, gentle, comforting Burmese female mentor speaking with soothing, mindful bedtime cadence and soft polite female particles (ရှင်/ပါရှင်).',
+  },
+};
+
+// Information endpoint about available TTS engines
+app.get('/api/tts-info', (req, res) => {
+  res.json({
+    hasGeminiApiKey: !!ai,
+    defaultModel: 'gemini-3.8-flash-tts',
+    flagshipModel: 'gemini-3.8-flash-tts',
+    fastModel: 'gemini-3.8-flash-lite-tts',
+    personas: Object.keys(PERSONA_VOICE_MAP),
+    voices: ['Fenrir', 'Kore', 'Zephyr', 'Puck'],
+  });
+});
+
+// Endpoint for high-definition authentic Burmese (Myanmar) Voice TTS
+// Uses Gemini 3.8 Flash TTS flagship model with Flash-Lite & Google Translate fallback
+app.all('/api/burmese-tts', async (req, res) => {
+  try {
+    const isPost = req.method === 'POST';
+    const text = (isPost ? req.body?.text : req.query.text) || '';
+    const cleanText = String(text).trim();
+
+    if (!cleanText) {
+      return res.status(400).json({ error: 'Text is required for Burmese TTS' });
+    }
+
+    const persona = String((isPost ? req.body?.persona : req.query.persona) || 'man_executive');
+    const requestedVoice = (isPost ? req.body?.voice : req.query.voice) as string | undefined;
+    const requestedModel = String((isPost ? req.body?.model : req.query.model) || 'gemini-3.8-flash-tts');
+    const customStyle = (isPost ? req.body?.style : req.query.style) as string | undefined;
+
+    const personaInfo = PERSONA_VOICE_MAP[persona] || PERSONA_VOICE_MAP.man_executive;
+    const voiceName = requestedVoice || personaInfo.voice;
+    const stylePrompt = customStyle || personaInfo.style;
+
+    // Determine engine model
+    const useGemini = ai && requestedModel !== 'google-web';
+    const geminiModel =
+      requestedModel === 'gemini-3.8-flash-lite-tts' ? 'gemini-3.8-flash-lite-tts' : 'gemini-3.8-flash-tts';
+
+    const cacheKey = useGemini
+      ? `gemini:${geminiModel}:${voiceName}:${cleanText}`
+      : `google:${cleanText}`;
+
+    // Check in-memory cache
+    if (ttsAudioCache.has(cacheKey)) {
+      const cached = ttsAudioCache.get(cacheKey)!;
+      const isWav = useGemini;
+      res.setHeader('Content-Type', isWav ? 'audio/wav' : 'audio/mpeg');
+      res.setHeader('Content-Length', cached.length);
+      res.setHeader('X-TTS-Engine', useGemini ? geminiModel : 'google-web');
+      res.setHeader('X-TTS-Voice', voiceName);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.end(cached);
+    }
+
+    // Try Gemini TTS first if available
+    if (useGemini && ai) {
+      const modelsToTry = [geminiModel];
+      if (geminiModel !== 'gemini-3.8-flash-lite-tts') {
+        modelsToTry.push('gemini-3.8-flash-lite-tts');
+      }
+
+      for (const currentModel of modelsToTry) {
+        try {
+          const response = await ai.models.generateContent({
+            model: currentModel,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: cleanText,
+                    speechMetadata: {
+                      style: stylePrompt,
+                    },
+                  },
+                ],
+              },
+            ],
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName },
+                },
+              },
+            },
+          });
+
+          const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (base64Audio) {
+            const wavBuffer = Buffer.from(base64Audio, 'base64');
+
+            // Store in cache
+            if (ttsAudioCache.size >= MAX_TTS_CACHE_SIZE) {
+              const firstKey = ttsAudioCache.keys().next().value;
+              if (firstKey) ttsAudioCache.delete(firstKey);
+            }
+            ttsAudioCache.set(cacheKey, wavBuffer);
+
+            res.setHeader('Content-Type', 'audio/wav');
+            res.setHeader('Content-Length', wavBuffer.length);
+            res.setHeader('X-TTS-Engine', currentModel);
+            res.setHeader('X-TTS-Voice', voiceName);
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            return res.end(wavBuffer);
+          }
+        } catch (geminiErr) {
+          console.warn(`Gemini TTS error on model ${currentModel}:`, geminiErr);
+        }
+      }
+    }
+
+    // Fallback: Google Translate Web TTS stream
+    const chunks = splitBurmeseTextIntoChunks(cleanText);
+    const audioBuffers: Buffer[] = [];
+
+    for (const chunk of chunks) {
+      const encoded = encodeURIComponent(chunk);
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q=${encoded}`;
+
+      const ttsResponse = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: '*/*',
+          Referer: 'https://translate.google.com/',
+        },
+      });
+
+      if (!ttsResponse.ok) {
+        console.warn(`TTS fetch failed for chunk: "${chunk.slice(0, 20)}...", status: ${ttsResponse.status}`);
+        continue;
+      }
+
+      const arrayBuffer = await ttsResponse.arrayBuffer();
+      if (arrayBuffer.byteLength > 0) {
+        audioBuffers.push(Buffer.from(arrayBuffer));
+      }
+    }
+
+    if (audioBuffers.length === 0) {
+      return res.status(502).json({ error: 'Failed to synthesize Burmese audio' });
+    }
+
+    const finalAudioBuffer = Buffer.concat(audioBuffers);
+
+    // Cache the fallback result
+    if (ttsAudioCache.size >= MAX_TTS_CACHE_SIZE) {
+      const firstKey = ttsAudioCache.keys().next().value;
+      if (firstKey) ttsAudioCache.delete(firstKey);
+    }
+    ttsAudioCache.set(cacheKey, finalAudioBuffer);
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', finalAudioBuffer.length);
+    res.setHeader('X-TTS-Engine', 'google-web');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.end(finalAudioBuffer);
+  } catch (err: any) {
+    console.error('Burmese TTS endpoint error:', err);
+    return res.status(500).json({ error: 'Internal TTS error', message: err?.message || 'Unknown error' });
+  }
+});
+
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 

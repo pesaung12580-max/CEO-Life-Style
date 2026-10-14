@@ -610,7 +610,17 @@ export function removeCustomAvatar(): void {
 export function getAlarmSettings(): AlarmConfig {
   try {
     const raw = localStorage.getItem('ceo_alarm_config');
-    return raw ? JSON.parse(raw) : DEFAULT_ALARM_CONFIG;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        ...DEFAULT_ALARM_CONFIG,
+        ...parsed,
+        voiceAlertsEnabled:
+          parsed.voiceAlertsEnabled !== undefined ? parsed.voiceAlertsEnabled : true,
+        selectedVoiceId: parsed.selectedVoiceId || 'man_executive',
+      };
+    }
+    return DEFAULT_ALARM_CONFIG;
   } catch {
     return DEFAULT_ALARM_CONFIG;
   }

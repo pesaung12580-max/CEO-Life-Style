@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Bell,
@@ -11,14 +11,26 @@ import {
   Play,
   Save,
   CheckCircle,
+  Radio,
+  VolumeX,
 } from 'lucide-react';
-import { AlarmConfig } from '../types';
+import { AlarmConfig, VoicePersonaId } from '../types';
 import {
   requestNotificationPermission,
   getNotificationPermissionStatus,
   sendBrowserNotification,
 } from '../services/notificationService';
 import { playChimeSequence } from '../services/alarmAudio';
+import {
+  speakBurmese,
+  stopBurmeseSpeech,
+  isSpeechSynthesisSupported,
+  BURMESE_VOICE_PERSONAS,
+  getVoicePersona,
+  getSavedVoicePersonaId,
+  saveSelectedVoicePersonaId,
+} from '../services/speechSynthesisService';
+import { MyanmarVoiceTesterModal } from './MyanmarVoiceTesterModal';
 import { PWAInstallButton } from './PWAInstallButton';
 import { formatTo12Hour } from '../services/storage';
 
@@ -40,6 +52,14 @@ export const SettingsModal: React.FC<Props> = ({
   const [bedtimeTime, setBedtimeTime] = useState(config.bedtimeTime);
   const [bedtimeEnabled, setBedtimeEnabled] = useState(config.bedtimeEnabled);
   const [soundEnabled, setSoundEnabled] = useState(config.soundEnabled);
+  const [voiceAlertsEnabled, setVoiceAlertsEnabled] = useState(
+    config.voiceAlertsEnabled !== undefined ? config.voiceAlertsEnabled : true
+  );
+  const [selectedVoiceId, setSelectedVoiceId] = useState<VoicePersonaId>(() =>
+    config.selectedVoiceId || getSavedVoicePersonaId()
+  );
+  const [showVoiceTesterModal, setShowVoiceTesterModal] = useState(false);
+  const [isSpeakingTest, setIsSpeakingTest] = useState(false);
   const [blockRemindersEnabled, setBlockRemindersEnabled] = useState(
     config.blockRemindersEnabled
   );
@@ -47,6 +67,17 @@ export const SettingsModal: React.FC<Props> = ({
     getNotificationPermissionStatus()
   );
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    const handleVoiceSync = (e: Event) => {
+      const customEvt = e as CustomEvent<{ personaId: VoicePersonaId }>;
+      if (customEvt.detail?.personaId) {
+        setSelectedVoiceId(customEvt.detail.personaId);
+      }
+    };
+    window.addEventListener('ceo-voice-persona-changed', handleVoiceSync);
+    return () => window.removeEventListener('ceo-voice-persona-changed', handleVoiceSync);
+  }, []);
 
   const handleRequestPermission = async () => {
     const status = await requestNotificationPermission();
@@ -58,14 +89,37 @@ export const SettingsModal: React.FC<Props> = ({
     }
   };
 
+  const handleTestBurmeseVoice = () => {
+    if (isSpeakingTest) {
+      stopBurmeseSpeech();
+      setIsSpeakingTest(false);
+      return;
+    }
+
+    const currentPersona = getVoicePersona(selectedVoiceId);
+    setIsSpeakingTest(true);
+    speakBurmese(
+      currentPersona.sampleText,
+      {
+        personaId: selectedVoiceId,
+        onEnd: () => setIsSpeakingTest(false),
+        onError: () => setIsSpeakingTest(false),
+      }
+    );
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    stopBurmeseSpeech();
+    saveSelectedVoicePersonaId(selectedVoiceId);
     const updated: AlarmConfig = {
       wakeUpTime,
       wakeUpEnabled,
       bedtimeTime,
       bedtimeEnabled,
       soundEnabled,
+      voiceAlertsEnabled,
+      selectedVoiceId,
       blockRemindersEnabled,
       browserNotificationsEnabled: permissionStatus === 'granted',
     };
@@ -199,6 +253,116 @@ export const SettingsModal: React.FC<Props> = ({
             />
           </div>
 
+          {/* Burmese Voice Text-to-Speech Toggle & 5 Voice Styles */}
+          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-rose-50/70 to-amber-50/40 dark:from-rose-950/30 dark:to-slate-800/40 border border-rose-200/80 dark:border-rose-900/40 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Radio className="w-4 h-4 text-rose-500" />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                    မြန်မာလို အသံထွက် သတိပေးခြင်း (Gemini Studio AI Voice Alerts)
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Gemini 3.8 Flash Audio AI ဖြင့် စစ်မှန်သော မြန်မာအသံထွက် (my-MM) သတိပေးရန်
+                  </span>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={voiceAlertsEnabled}
+                onChange={(e) => setVoiceAlertsEnabled(e.target.checked)}
+                className="w-4 h-4 text-rose-500 rounded accent-rose-500"
+              />
+            </div>
+
+            {voiceAlertsEnabled && (
+              <>
+                {/* 5 Kinds of Voice Styles Pills */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                      အသံပုံစံ ၅ မျိုး (5 Studio AI Voices):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowVoiceTesterModal(true)}
+                      className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>🎙️ Voice Studio ဖွင့်ရန်</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {BURMESE_VOICE_PERSONAS.map((p) => {
+                      const isSelected = selectedVoiceId === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedVoiceId(p.id);
+                            saveSelectedVoicePersonaId(p.id);
+                          }}
+                          className={`p-2 rounded-xl text-left border transition text-xs flex items-center gap-2 ${
+                            isSelected
+                              ? 'bg-rose-500 text-white border-rose-600 shadow-xs'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-rose-300'
+                          }`}
+                        >
+                          <span className="text-base">{p.avatar}</span>
+                          <div className="min-w-0">
+                            <span className="font-bold truncate block text-[11px]">
+                              {p.nameEn.split('(')[0].trim()}
+                            </span>
+                            <span
+                              className={`text-[9px] font-semibold block ${
+                                isSelected ? 'text-rose-100' : 'text-slate-400'
+                              }`}
+                            >
+                              {p.geminiVoiceName} ({p.badgeMm})
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleTestBurmeseVoice}
+                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-2xs ${
+                      isSpeakingTest
+                        ? 'bg-rose-500 text-white animate-pulse'
+                        : 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {isSpeakingTest ? (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5" />
+                        <span>အသံရပ်ရန်</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="w-3.5 h-3.5" />
+                        <span>🔊 အသံစမ်းသပ်ရန် ({getVoicePersona(selectedVoiceId).badgeMm})</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowVoiceTesterModal(true)}
+                    className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 text-white text-xs font-bold flex items-center gap-1.5 active:scale-95 transition shadow-2xs"
+                  >
+                    <span>🎙️ Voice Studio</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Test Alarm & Sound Button */}
           <div className="flex gap-2">
             <button
@@ -209,12 +373,15 @@ export const SettingsModal: React.FC<Props> = ({
               className="flex-1 py-2.5 px-3 rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition"
             >
               <Volume2 className="w-3.5 h-3.5" />
-              <span>အသံ စမ်းသပ်ရန် (Test Sound)</span>
+              <span>ခေါင်းလောင်းသံ (Chime)</span>
             </button>
 
             <button
               type="button"
-              onClick={onTriggerTestAlarm}
+              onClick={() => {
+                stopBurmeseSpeech();
+                onTriggerTestAlarm();
+              }}
               className="flex-1 py-2.5 px-3 rounded-xl bg-rose-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition shadow-xs"
             >
               <Play className="w-3.5 h-3.5" />
@@ -282,6 +449,13 @@ export const SettingsModal: React.FC<Props> = ({
           </div>
         </form>
       </div>
+
+      {/* 5 Burmese Voice Tester Studio Modal */}
+      <MyanmarVoiceTesterModal
+        isOpen={showVoiceTesterModal}
+        onClose={() => setShowVoiceTesterModal(false)}
+        onVoiceChanged={(id) => setSelectedVoiceId(id)}
+      />
     </div>
   );
 };

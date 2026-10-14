@@ -302,6 +302,9 @@ export const DEFAULT_ALARM_CONFIG: AlarmConfig = {
   bedtimeTime: '21:40',
   bedtimeEnabled: true,
   soundEnabled: true,
+  voiceAlertsEnabled: true,
+  selectedVoiceId: 'man_executive',
+  ttsModel: 'gemini-3.8-flash-tts',
   browserNotificationsEnabled: true,
   blockRemindersEnabled: true,
 };
