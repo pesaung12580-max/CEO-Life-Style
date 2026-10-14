@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="roseGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb7185" />
+      <stop offset="50%" stop-color="#f43f5e" />
+      <stop offset="100%" stop-color="#e11d48" />
+    </linearGradient>
+    <linearGradient id="innerGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#881337" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <!-- Background with safe zone -->
+  <rect width="512" height="512" rx="112" fill="url(#roseGradient)" />
+  <rect width="512" height="256" rx="112" fill="url(#innerGlow)" />
+  
+  <!-- Modern CEO Crown & Routine Checkmark Emblem -->
+  <g filter="url(#shadow)" transform="translate(256, 256)">
+    <!-- Stylized Crown & Sun Rays -->
+    <path d="M-110,60 L-130,-50 L-60,0 L0,-90 L60,0 L130,-50 L110,60 Z" fill="#ffffff" fill-opacity="0.95" />
+    <!-- Checkmark inside Shield / Base -->
+    <rect x="-100" y="70" width="200" height="20" rx="10" fill="#ffffff" fill-opacity="0.9" />
+    <!-- Center Jewel / Flame -->
+    <circle cx="0" cy="-25" r="14" fill="#e11d48" />
+    <path d="M-40,25 L-12,50 L42,-8" fill="none" stroke="#e11d48" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

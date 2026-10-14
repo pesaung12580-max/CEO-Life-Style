@@ -1,0 +1,8 @@
+{
+  "name": "CEO Daily Routine",
+  "description": "Mobile-first CEO daily routine, habit tracker, and daily planner in Burmese with time blocks, non-negotiables, motivation, and alarms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
